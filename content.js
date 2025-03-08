@@ -1,13 +1,27 @@
-// console.log("Email Writer Extension - Content Script Loaded");
 
 function createAIButton() {
-  const button = document.createElement('div');
-  button.className = 'T-I J-J5-Ji aoO v7 T-I-atl L3';
-  button.style.marginRight = '8px';
-  button.innerHTML = 'AI Reply';
-  button.setAttribute('role', 'button');
-  button.setAttribute('data-tooltip', 'Generate AI Reply');
-  return button;
+    const button = document.createElement('div');
+    button.className = 'design ai-reply-button T-I J-J5-Ji aoO v7 T-I-atl L3';
+
+    button.innerHTML = 'AI Reply';
+    button.setAttribute('role','button');
+    button.setAttribute('data-tooltip','Generate AI Reply');
+    return button;
+}
+
+function createToneSelector() {
+    const select = document.createElement('select');
+    select.className = 'design ai-tone-selector T-I J-J5-Ji aoO v7 T-I-atl L3';
+
+    const tones = ['Professional', 'Casual', 'Friendly', 'Sarcastic'];
+    tones.forEach((tone) => {
+      const option = document.createElement('option');
+      option.value = tone.toLowerCase();
+      option.innerText = tone;
+      select.appendChild(option);
+    });
+  
+    return select;
 }
 
 function getEmailContent() {
@@ -41,56 +55,71 @@ function findComposeToolbar() {
 }
 
 function injectButton() {
-  const existingButton = document.querySelector('.ai-reply-button');
-  if(existingButton) existingButton.remove();
+    const existingButton = document.querySelector('.ai-reply-button');
+    if (existingButton) existingButton.remove();
+    const existingSelector = document.querySelector('.ai-tone-selector');
+    if (existingSelector) existingSelector.remove();
 
-  const toolbar = findComposeToolbar();
-  if(!toolbar) return;
+    const toolbar = findComposeToolbar();
+    if(!toolbar) return;
 
-  const button = createAIButton();
-  button.classList.add('ai-reply-button');
+    const button = createAIButton();
+    const toneSelector = createToneSelector();
 
-  // Backend API call
-  button.addEventListener('click', async () => {
-    try {
-        button.innerHTML = 'Generating...';
-        button.disabled = true;
+    // Backend API call
+    button.addEventListener('click', async () => {
+        try {
+            button.innerHTML = 'Generating...';
+            button.disabled = true;
 
-        const emailContent = getEmailContent();
-        const response = await fetch('http://localhost:8080/api/email/generate', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ 
-                emailContent: emailContent,
-                tone: 'professional'
-            })
-        });
+            const emailContent = getEmailContent();
+            const selectedTone = toneSelector.value;
 
-        if(!response.ok) {
-            throw new Error('AI Reply failed');
+            // Get Backend API URL
+            const configUrl = chrome.runtime.getURL('config.json');
+            const responseUrl = await fetch(configUrl);
+            if (!responseUrl.ok) {
+                throw new Error('Failed to fetch config.json');
+            }
+            const config = await responseUrl.json();
+            const apiUrl = config.API_URL;
+
+            // Hit backend
+            const response = await fetch(apiUrl + '/api/email/generate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ 
+                    emailContent: emailContent,
+                    tone: selectedTone
+                })
+            });
+
+            if(!response.ok) {
+                throw new Error('AI Reply failed');
+            }
+
+            const generatedReply = await response.text();
+            const composeBox = document.querySelector('[role="textbox"][g_editable="true"]');
+            
+            if(composeBox) {
+                composeBox.focus();
+                document.execCommand('insertText', false, generatedReply);
+            } else {
+                // console.log('Compose box not found');
+            }
+
+        } catch (error) {
+            alert('Failed to generate AI Reply');
+        } finally {
+            button.innerHTML = 'AI Reply';
+            button.disabled = false;
         }
+    });
 
-        const generatedReply = await response.text();
-        const composeBox = document.querySelector('[role="textbox"][g_editable="true"]');
-        
-        if(composeBox) {
-            composeBox.focus();
-            document.execCommand('insertText', false, generatedReply);
-        } else {
-            console.log('Compose box not found');
-        }
-
-    } catch (error) {
-        alert('Failed to generate AI Reply');
-    } finally {
-        button.innerHTML = 'AI Reply';
-        button.disabled = false;
-    }
-  });
-
-  toolbar.insertBefore(button, toolbar.firstChild);
+    toolbar.insertBefore(button, toolbar.firstChild);
+    toolbar.insertBefore(toneSelector, toolbar.firstChild);
 };
 
 // MutationObserver to detect when the compose window is opened
